@@ -1,5 +1,6 @@
 import { Controller, Get, Injectable, Logger, NotFoundException, Param, Query, Res, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, resolve } from 'path';
@@ -11,20 +12,42 @@ import { Response } from 'express';
 export class StorageService {
   private readonly root: string;
   private readonly secret: string;
+  private readonly supabase: SupabaseClient | null;
+  private readonly bucket: string;
   constructor(config: ConfigService) {
     this.root = resolve(config.get<string>('STORAGE_PATH') ?? './private-storage');
     this.secret = config.get<string>('JWT_SECRET') ?? 'development-only-change-me';
+    const supabaseUrl = config.get<string>('SUPABASE_URL');
+    const serviceRoleKey = config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+    this.bucket = config.get<string>('SUPABASE_STORAGE_BUCKET') ?? 'comprobantes';
+    this.supabase = supabaseUrl && serviceRoleKey
+      ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : null;
   }
-  async save(clientId: string, chargeId: string, buffer: Buffer, extension: string) {
+  async save(clientId: string, chargeId: string, buffer: Buffer, extension: string, mimeType: string) {
     const hash = createHash('sha256').update(buffer).digest('hex');
     const key = `${clientId}/${chargeId}/${randomUUID()}.${extension}`;
+    if (this.supabase) {
+      const { error } = await this.supabase.storage.from(this.bucket).upload(key, buffer, {
+        contentType: mimeType,
+        cacheControl: '3600',
+        upsert: false,
+      });
+      if (error) throw new ServiceUnavailableException(`No se pudo guardar el comprobante: ${error.message}`);
+      return { key, hash };
+    }
     const target = resolve(this.root, key);
     if (!target.startsWith(this.root)) throw new Error('Ruta de storage inválida');
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, buffer, { flag: 'wx' });
     return { key, hash };
   }
-  signedPath(receiptId: string, expiresInSeconds = 300) {
+  async signedPath(receiptId: string, storageKey: string, expiresInSeconds = 300) {
+    if (this.supabase) {
+      const { data, error } = await this.supabase.storage.from(this.bucket).createSignedUrl(storageKey, expiresInSeconds);
+      if (error || !data?.signedUrl) throw new ServiceUnavailableException('No se pudo generar el acceso al comprobante');
+      return data.signedUrl;
+    }
     const expires = Math.floor(Date.now() / 1000) + expiresInSeconds;
     const signature = createHmac('sha256', this.secret).update(`${receiptId}:${expires}`).digest('hex');
     return `/api/files/${receiptId}?expires=${expires}&signature=${signature}`;

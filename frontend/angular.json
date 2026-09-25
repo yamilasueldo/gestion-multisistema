@@ -1,1 +1,44 @@
-{"version":1,"projects":{"support":{"projectType":"application","root":"","sourceRoot":"src","architect":{"build":{"builder":"@angular/build:application","options":{"browser":"src/main.ts","tsConfig":"tsconfig.app.json","assets":[],"styles":["src/styles.css"]}},"serve":{"builder":"@angular/build:dev-server","configurations":{"development":{"buildTarget":"support:build:development"}},"defaultConfiguration":"development"}}}}}
+{
+  "version": 1,
+  "projects": {
+    "support": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "assets": [],
+            "styles": ["src/styles.css"]
+          },
+          "configurations": {
+            "production": {
+              "optimization": true,
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "configurations": {
+            "development": {
+              "buildTarget": "support:build:development"
+            },
+            "production": {
+              "buildTarget": "support:build:production"
+            }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}

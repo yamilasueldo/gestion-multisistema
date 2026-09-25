@@ -4,3 +4,4 @@
 backend/private-storage/
 backend/.env
 frontend/.env
+/package-lock.json

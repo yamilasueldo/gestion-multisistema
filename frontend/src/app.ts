@@ -2,8 +2,9 @@ import { HttpClient, HttpInterceptorFn } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
+import { API_BASE_URL } from './generated-api';
 
-const API = 'http://localhost:3100/api';
+const API = API_BASE_URL;
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const token = typeof localStorage === 'undefined' ? null : localStorage.getItem('support_token');
   return next(token ? request.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : request);

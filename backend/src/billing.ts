@@ -49,7 +49,7 @@ export class BillingService {
     if (!file?.buffer?.length || file.size > 10 * 1024 * 1024) throw new BadRequestException('El archivo debe pesar hasta 10 MB');
     const detected = this.detect(file.buffer);
     if (!detected) throw new BadRequestException('Sólo se aceptan archivos PDF, JPG o PNG válidos');
-    const stored = await this.storage.save(clientId, chargeId, file.buffer, detected.extension);
+    const stored = await this.storage.save(clientId, chargeId, file.buffer, detected.extension, detected.mime);
     const receipt = await this.prisma.$transaction(async tx => {
       const created = await tx.comprobante.create({ data: { cargoId: chargeId, storageKey: stored.key, mimeType: detected.mime, tamano: file.size, hashSha256: stored.hash } });
       await tx.cargo.update({ where: { id: chargeId }, data: { estado: 'COMPROBANTE_ENVIADO' } });
@@ -62,7 +62,7 @@ export class BillingService {
   async receiptUrl(clientId: string, chargeId: string) {
     const receipt = await this.prisma.comprobante.findFirst({ where: { cargoId: chargeId, cargo: { clienteId: clientId } }, orderBy: { fechaCarga: 'desc' } });
     if (!receipt) throw new NotFoundException('Comprobante no encontrado');
-    return { url: this.storage.signedPath(receipt.id), expiresIn: 300 };
+    return { url: await this.storage.signedPath(receipt.id, receipt.storageKey), expiresIn: 300 };
   }
   private present(c: any, now: Date, detail = false) {
     const latest = c.comprobantes?.[0];
