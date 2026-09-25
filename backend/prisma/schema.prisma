@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ModalidadPrecio {
+  FIJO
+  INCREMENTO_MANUAL
+  INDEXADO
+}
+
+enum TipoCargo {
+  DESARROLLO
+  SUSCRIPCION
+  EXTRAORDINARIO
+}
+
+enum EstadoCargo {
+  PENDIENTE
+  COMPROBANTE_ENVIADO
+  PAGADO
+  RECHAZADO
+  ANULADO
+}
+
+enum EstadoAjuste {
+  PROGRAMADO
+  DATOS_INCOMPLETOS
+  PENDIENTE_APROBACION
+  APROBADO
+  RECHAZADO
+  CANCELADO
+}
+
+enum EstadoAviso {
+  PENDIENTE
+  ENVIADO
+  FALLIDO
+}
+
+model ClienteCentral {
+  id            String            @id @default(uuid()) @db.Uuid
+  nombre        String            @db.VarChar(160)
+  identificador String            @unique @db.VarChar(80)
+  secretoHash   String            @map("secreto_hash") @db.VarChar(255)
+  activo        Boolean           @default(true)
+  banco         String?           @db.VarChar(120)
+  titular       String?           @db.VarChar(160)
+  cuit          String?           @db.VarChar(20)
+  cbu           String?           @db.VarChar(30)
+  alias         String?           @db.VarChar(80)
+  fechaCreacion DateTime          @default(now()) @map("fecha_creacion") @db.Timestamptz(6)
+  planes        Plan[]
+  cargos        Cargo[]
+  auditoria     EventoAuditoria[]
+
+  @@map("clientes_centrales")
+}
+
+model UsuarioSoporte {
+  id                    String            @id @default(uuid()) @db.Uuid
+  nombre                String            @db.VarChar(120)
+  email                 String            @unique @db.VarChar(255)
+  claveHash             String            @map("clave_hash") @db.VarChar(255)
+  activo                Boolean           @default(true)
+  comprobantesRevisados Comprobante[]     @relation("RevisorComprobante")
+  ajustesRevisados      EjecucionAjuste[] @relation("RevisorAjuste")
+  auditoria             EventoAuditoria[]
+
+  @@map("usuarios_soporte")
+}
+
+model Plan {
+  id              String          @id @default(uuid()) @db.Uuid
+  clienteId       String          @map("cliente_id") @db.Uuid
+  nombre          String          @db.VarChar(160)
+  modalidad       ModalidadPrecio
+  diaEmision      Int             @default(1) @map("dia_emision")
+  diasVencimiento Int             @default(10) @map("dias_vencimiento")
+  activo          Boolean         @default(true)
+  cliente         ClienteCentral  @relation(fields: [clienteId], references: [id])
+  versiones       VersionPrecio[]
+  regla           ReglaAjuste?
+  cargos          Cargo[]
+
+  @@index([clienteId, activo])
+  @@map("planes")
+}
+
+model VersionPrecio {
+  id            String           @id @default(uuid()) @db.Uuid
+  planId        String           @map("plan_id") @db.Uuid
+  importe       Decimal          @db.Decimal(12, 2)
+  vigenteDesde  DateTime         @map("vigente_desde") @db.Date
+  motivo        String?          @db.VarChar(500)
+  fechaCreacion DateTime         @default(now()) @map("fecha_creacion") @db.Timestamptz(6)
+  plan          Plan             @relation(fields: [planId], references: [id])
+  cargos        Cargo[]
+  ajuste        EjecucionAjuste?
+
+  @@unique([planId, vigenteDesde])
+  @@index([planId, vigenteDesde(sort: Desc)])
+  @@map("versiones_precio")
+}
+
+model Indice {
+  id            String              @id @default(uuid()) @db.Uuid
+  codigo        String              @unique @db.VarChar(40)
+  nombre        String              @db.VarChar(160)
+  fuenteUrl     String?             @map("fuente_url") @db.VarChar(500)
+  activo        Boolean             @default(true)
+  publicaciones PublicacionIndice[]
+  reglas        ReglaAjuste[]
+
+  @@map("indices")
+}
+
+model PublicacionIndice {
+  id                String          @id @default(uuid()) @db.Uuid
+  indiceId          String          @map("indice_id") @db.Uuid
+  periodo           String          @db.VarChar(7)
+  variacion         Decimal         @db.Decimal(9, 6)
+  variacionOriginal Decimal?        @map("variacion_original") @db.Decimal(9, 6)
+  fuente            String          @db.VarChar(500)
+  correccionMotivo  String?         @map("correccion_motivo") @db.VarChar(500)
+  consultadoEn      DateTime        @default(now()) @map("consultado_en") @db.Timestamptz(6)
+  indice            Indice          @relation(fields: [indiceId], references: [id])
+  detalles          DetalleAjuste[]
+
+  @@unique([indiceId, periodo])
+  @@map("publicaciones_indices")
+}
+
+model ReglaAjuste {
+  id              String            @id @default(uuid()) @db.Uuid
+  planId          String            @unique @map("plan_id") @db.Uuid
+  indiceId        String            @map("indice_id") @db.Uuid
+  frecuenciaMeses Int               @map("frecuencia_meses")
+  fechaBase       DateTime          @map("fecha_base") @db.Date
+  proximaRevision DateTime          @map("proxima_revision") @db.Date
+  activa          Boolean           @default(true)
+  plan            Plan              @relation(fields: [planId], references: [id])
+  indice          Indice            @relation(fields: [indiceId], references: [id])
+  ejecuciones     EjecucionAjuste[]
+
+  @@map("reglas_ajuste")
+}
+
+model EjecucionAjuste {
+  id                 String          @id @default(uuid()) @db.Uuid
+  reglaId            String          @map("regla_id") @db.Uuid
+  periodoDesde       String          @map("periodo_desde") @db.VarChar(7)
+  periodoHasta       String          @map("periodo_hasta") @db.VarChar(7)
+  precioAnterior     Decimal         @map("precio_anterior") @db.Decimal(12, 2)
+  variacionAcumulada Decimal?        @map("variacion_acumulada") @db.Decimal(12, 8)
+  precioPropuesto    Decimal?        @map("precio_propuesto") @db.Decimal(12, 2)
+  fechaEfectiva      DateTime        @map("fecha_efectiva") @db.Date
+  estado             EstadoAjuste
+  claveIdempotencia  String          @unique @map("clave_idempotencia") @db.VarChar(160)
+  motivoRevision     String?         @map("motivo_revision") @db.VarChar(500)
+  revisadoPorId      String?         @map("revisado_por_id") @db.Uuid
+  revisadoEn         DateTime?       @map("revisado_en") @db.Timestamptz(6)
+  versionPrecioId    String?         @unique @map("version_precio_id") @db.Uuid
+  regla              ReglaAjuste     @relation(fields: [reglaId], references: [id])
+  revisadoPor        UsuarioSoporte? @relation("RevisorAjuste", fields: [revisadoPorId], references: [id])
+  versionPrecio      VersionPrecio?  @relation(fields: [versionPrecioId], references: [id])
+  detalles           DetalleAjuste[]
+
+  @@map("ejecuciones_ajuste")
+}
+
+model DetalleAjuste {
+  id            String            @id @default(uuid()) @db.Uuid
+  ejecucionId   String            @map("ejecucion_id") @db.Uuid
+  publicacionId String            @map("publicacion_id") @db.Uuid
+  periodo       String            @db.VarChar(7)
+  variacion     Decimal           @db.Decimal(9, 6)
+  ejecucion     EjecucionAjuste   @relation(fields: [ejecucionId], references: [id], onDelete: Cascade)
+  publicacion   PublicacionIndice @relation(fields: [publicacionId], references: [id])
+
+  @@unique([ejecucionId, periodo])
+  @@map("detalles_ajuste")
+}
+
+model Cargo {
+  id                String         @id @default(uuid()) @db.Uuid
+  clienteId         String         @map("cliente_id") @db.Uuid
+  planId            String?        @map("plan_id") @db.Uuid
+  versionPrecioId   String?        @map("version_precio_id") @db.Uuid
+  tipo              TipoCargo
+  concepto          String         @db.VarChar(255)
+  periodo           String?        @db.VarChar(7)
+  importe           Decimal        @db.Decimal(12, 2)
+  moneda            String         @default("ARS") @db.VarChar(3)
+  fechaEmision      DateTime       @map("fecha_emision") @db.Date
+  fechaVencimiento  DateTime       @map("fecha_vencimiento") @db.Date
+  estado            EstadoCargo    @default(PENDIENTE)
+  banco             String?        @db.VarChar(120)
+  titular           String?        @db.VarChar(160)
+  cuit              String?        @db.VarChar(20)
+  cbu               String?        @db.VarChar(30)
+  alias             String?        @db.VarChar(80)
+  claveIdempotencia String?        @unique @map("clave_idempotencia") @db.VarChar(160)
+  fechaCreacion     DateTime       @default(now()) @map("fecha_creacion") @db.Timestamptz(6)
+  cliente           ClienteCentral @relation(fields: [clienteId], references: [id])
+  plan              Plan?          @relation(fields: [planId], references: [id])
+  versionPrecio     VersionPrecio? @relation(fields: [versionPrecioId], references: [id])
+  comprobantes      Comprobante[]
+
+  @@index([clienteId, estado])
+  @@map("cargos")
+}
+
+model Comprobante {
+  id            String          @id @default(uuid()) @db.Uuid
+  cargoId       String          @map("cargo_id") @db.Uuid
+  storageKey    String          @unique @map("storage_key") @db.VarChar(500)
+  mimeType      String          @map("mime_type") @db.VarChar(80)
+  tamano        Int
+  hashSha256    String          @map("hash_sha256") @db.VarChar(64)
+  fechaCarga    DateTime        @default(now()) @map("fecha_carga") @db.Timestamptz(6)
+  revisadoPorId String?         @map("revisado_por_id") @db.Uuid
+  revisadoEn    DateTime?       @map("revisado_en") @db.Timestamptz(6)
+  motivoRechazo String?         @map("motivo_rechazo") @db.VarChar(500)
+  cargo         Cargo           @relation(fields: [cargoId], references: [id])
+  revisadoPor   UsuarioSoporte? @relation("RevisorComprobante", fields: [revisadoPorId], references: [id])
+  avisos        AvisoCorreo[]
+
+  @@map("comprobantes")
+}
+
+model AvisoCorreo {
+  id             String      @id @default(uuid()) @db.Uuid
+  comprobanteId  String      @map("comprobante_id") @db.Uuid
+  destinatarios  String
+  estado         EstadoAviso @default(PENDIENTE)
+  intentos       Int         @default(0)
+  proximoIntento DateTime    @default(now()) @map("proximo_intento") @db.Timestamptz(6)
+  ultimoError    String?     @map("ultimo_error") @db.VarChar(500)
+  enviadoEn      DateTime?   @map("enviado_en") @db.Timestamptz(6)
+  comprobante    Comprobante @relation(fields: [comprobanteId], references: [id])
+
+  @@index([estado, proximoIntento])
+  @@map("avisos_correo")
+}
+
+model EventoAuditoria {
+  id               String          @id @default(uuid()) @db.Uuid
+  clienteId        String?         @map("cliente_id") @db.Uuid
+  usuarioSoporteId String?         @map("usuario_soporte_id") @db.Uuid
+  accion           String          @db.VarChar(100)
+  entidad          String          @db.VarChar(80)
+  entidadId        String          @map("entidad_id") @db.VarChar(80)
+  detalle          Json?
+  fecha            DateTime        @default(now()) @db.Timestamptz(6)
+  cliente          ClienteCentral? @relation(fields: [clienteId], references: [id])
+  usuarioSoporte   UsuarioSoporte? @relation(fields: [usuarioSoporteId], references: [id])
+
+  @@index([entidad, entidadId])
+  @@map("eventos_auditoria")
+}
